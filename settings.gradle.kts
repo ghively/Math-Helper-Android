@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://chaquo.com/maven") }
+        // Chaquopy 12.0.1+ moved to Maven Central - no longer need chaquo.com/maven
     }
 }
 

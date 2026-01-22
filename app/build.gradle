@@ -91,8 +91,8 @@ dependencies {
     implementation "net.objecthunter:exp4j:0.4.8"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
 
-    // Chaquopy Python runtime
-    implementation "com.chaquo.python:runtime:17.0.0"
+    // Chaquopy Python runtime - automatically added by plugin for v12.0.1+
+    // No explicit runtime dependency needed - plugin manages Maven Central artifacts
 
     // Testing
     testImplementation "junit:junit:4.13.2"
