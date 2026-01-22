@@ -11,6 +11,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -332,7 +333,7 @@ fun AmbientBackgroundGlows() {
                         Color(0xFF8B5CF6).copy(alpha = 0.15f), // Purple
                         Color.Transparent,
                     ),
-                    center = Offset(Float.MAX_VALUE, 0f),
+                    center = Offset(2000f, 0f),
                     radius = 600f
                 )
             )
@@ -342,7 +343,7 @@ fun AmbientBackgroundGlows() {
                         Color(0xFFEC4899).copy(alpha = 0.1f),  // Pink
                         Color.Transparent,
                     ),
-                    center = Offset(Float.MAX_VALUE, Float.MAX_VALUE),
+                    center = Offset(2000f, 2000f),
                     radius = 600f
                 )
             )
@@ -1590,9 +1591,23 @@ fun Modifier.combinedClick(
     onClick: () -> Unit,
     onPress: () -> Unit,
     onRelease: () -> Unit
-) = this.then(
-    pointerInputUnit(onClick = { _, _ -> }) // Simplified for Compose 1.5+
-)
+) = composed {
+    val pressedState = remember { mutableStateOf(false) }
+
+    this
+        .pointerInput(Unit) {
+            detectTapGestures(
+                onPress = {
+                    pressedState.value = true
+                    onPress()
+                    tryAwaitRelease()
+                    pressedState.value = false
+                    onRelease()
+                    onClick()
+                }
+            )
+        }
+}
 
 fun Modifier.pulse() = composed {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
