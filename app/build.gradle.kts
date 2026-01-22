@@ -65,7 +65,7 @@ android {
 }
 
 // Chaquopy Python configuration
-chaquopy {
+configure<com.chaquo.python.gradle.ChaquopyPluginExtension> {
     defaultConfig {
         // Python version
         version = "3.11"
