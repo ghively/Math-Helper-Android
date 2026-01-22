@@ -1,0 +1,124 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'app/**'
+      - 'external/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRIBUTION: 'temurin'
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Sign Release APK
+        id: sign_apk
+        run: |
+          # Debug signing (for CI/CD - replace with proper signing for production)
+          cp app/build/outputs/apk/release/app-release-unsigned.apk app-release-signed.apk
+
+          # For production, you would use:
+          # jarsigner -keystore ${{ secrets.KEYSTORE_FILE }} \
+          #   -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+          #   -keypass ${{ secrets.KEY_PASSWORD }} \
+          #   app/build/outputs/apk/release/app-release-unsigned.apk \
+          #   ${{ secrets.KEY_ALIAS }}
+
+          # zipalign -v -p 4 app-release-signed-unsigned.apk app-release-signed-aligned.apk
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathMentor-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathMentor-release-${{ github.sha }}
+          path: app-release-signed.apk
+          retention-days: 90
+
+      - name: Get version from build
+        id: get_version
+        run: |
+          VERSION=$(grep "versionName" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release (on tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app-release-signed.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-model:
+    name: Upload Model to Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download GGUF Model
+        run: |
+          wget https://huggingface.co/RichardErkhov/Qwen_-_Qwen2.5-Math-1.5B-gguf/resolve/main/Qwen2.5-Math-1.5B.Q4_K_M.gguf
+
+      - name: Create model checksum
+        run: sha256sum Qwen2.5-Math-1.5B.Q4_K_M.gguf > Qwen2.5-Math-1.5B.Q4_K_M.gguf.sha256
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            Qwen2.5-Math-1.5B.Q4_K_M.gguf
+            Qwen2.5-Math-1.5B.Q4_K_M.gguf.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

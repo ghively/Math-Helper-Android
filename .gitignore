@@ -1,6 +1,53 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
 client/node_modules/
 .DS_Store
 .env
+
+# Android/Gradle
+*.iml
+.gradle/
+/local.properties
+.idea/
+build/
+captures/
+.externalNativeBuild
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+local.properties
+proguard/
+navigation-caches/
+
+# Gradle wrapper (we commit these)
+# !gradle/wrapper/gradle-wrapper.jar
+# !gradlew
+# !gradlew.bat
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+*.swp
+*.swo
+*~
+gradle-*
