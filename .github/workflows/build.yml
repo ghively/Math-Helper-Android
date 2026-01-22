@@ -7,7 +7,7 @@ on:
       - 'app/**'
       - 'external/**'
       - 'build.gradle.kts'
-      - 'app/build.gradle'
+      - 'app/build.gradle.kts'
       - 'settings.gradle.kts'
       - '.github/workflows/**'
   pull_request:
@@ -80,7 +80,7 @@ jobs:
       - name: Get version from build
         id: get_version
         run: |
-          VERSION=$(grep "versionName" app/build.gradle | sed "s/.*'\(.*\)'.*/\1/")
+          VERSION=$(grep "versionName" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create Release (on main branch)
