@@ -28,8 +28,8 @@ class MathTools(private val context: Context) {
      * - "3.5 * 4" → "14"
      * - "sin(30 degrees)" → "0.5"
      */
-    suspend fun calculate(input: String): ToolResult {
-        return try {
+    suspend fun calculate(input: String): ToolResult = withContext(Dispatchers.IO) {
+        try {
             val processed = preprocessTrig(input)
             val expression: Expression = ExpressionBuilder(processed).build()
             val result = expression.evaluate()
@@ -63,7 +63,6 @@ class MathTools(private val context: Context) {
      */
     suspend fun solveEquation(equation: String): ToolResult {
         return try {
-            // Use SymPy for robust equation solving
             sympy.solveEquation(equation).toToolResult()
         } catch (e: Exception) {
             ToolResult(
@@ -231,20 +230,20 @@ class MathTools(private val context: Context) {
     // Helper functions
     // ==========================================================================
 
+    /**
+     * Preprocess trigonometric functions to use radians
+     */
     private fun preprocessTrig(input: String): String {
-        // Convert "sin(30)" with degrees to radians for exp4j
-        return input
-            .replace(Regex("""sin\((\d+)\)""")) { match ->
-                "sin(toRadians(${match.groupValues[1]}))"
-            }
-            .replace(Regex("""cos\((\d+)\)""")) { match ->
-                "cos(toRadians(${match.groupValues[1]}))"
-            }
-            .replace(Regex("""tan\((\d+)\)""")) { match ->
-                "tan(toRadians(${match.groupValues[1]}))"
-            }
+        var result = input
+        for ((pattern, replacement) in TRIG_PATTERNS) {
+            result = result.replace(pattern, replacement)
+        }
+        return result
     }
 
+    /**
+     * Format numeric result for display
+     */
     private fun formatResult(result: Double): String {
         return if (result == result.toLong().toDouble()) {
             result.toLong().toString()
@@ -253,75 +252,48 @@ class MathTools(private val context: Context) {
         }
     }
 
-    private fun normalizeAnswer(answer: String): String {
-        return answer
+    /**
+     * Normalize answer for comparison
+     */
+    private fun normalizeAnswer(answer: String?): String {
+        return answer.orEmpty()
             .replace(" ", "")
             .lowercase()
             .replace("x=", "")
             .replace("=", "")
     }
 
+    /**
+     * Generate a basic hint when SymPy fails
+     */
     private fun generateHint(problem: String, lastAttempt: String?): String {
         return when {
             problem.contains("=") -> "What's the first step to isolate the variable?"
-            problem.contains("+") || problem.contains("-") → "Try combining like terms first."
-            problem.contains("*") || problem.contains("/") → "Remember the order of operations (PEMDAS)."
+            problem.contains("+") || problem.contains("-") -> "Try combining like terms first."
+            problem.contains("*") || problem.contains("/") -> "Remember the order of operations (PEMDAS)."
             "simplify" in problem.lowercase() || "expand" in problem.lowercase() -> "Look for common patterns you can apply."
-            "factor" in problem.lowercase() → "What do these terms have in common?"
+            "factor" in problem.lowercase() -> "What do these terms have in common?"
             "graph" in problem.lowercase() || "plot" in problem.lowercase() -> "What shape would this graph have?"
-            lastAttempt != null → "Your answer: $lastAttempt. Check each step carefully."
-            else → "What information do you know? What are you trying to find?"
-        }
-    }
-}
-
-/**
- * Companion object for backwards compatibility with non-context usage
- */
-object MathTools {
-    /**
-     * Calculate without context (uses exp4j only)
-     */
-    fun calculate(input: String): ToolResult {
-        return try {
-            val processed = preprocessTrig(input)
-            val expression: Expression = ExpressionBuilder(processed).build()
-            val result = expression.evaluate()
-
-            ToolResult(
-                success = true,
-                result = formatResult(result),
-                explanation = "Calculated: $input = ${formatResult(result)}"
-            )
-        } catch (e: Exception) {
-            ToolResult(
-                success = false,
-                result = null,
-                explanation = "Error calculating '$input': ${e.message}",
-                error = e.message
-            )
+            lastAttempt != null -> "Your answer: $lastAttempt. Check each step carefully."
+            else -> "What information do you know? What are you trying to find?"
         }
     }
 
-    private fun preprocessTrig(input: String): String {
-        return input
-            .replace(Regex("""sin\((\d+)\)""")) { match ->
+    companion object {
+        /**
+         * Pre-compiled regex patterns for trigonometric function preprocessing
+         */
+        private val TRIG_PATTERNS = listOf(
+            Regex("""sin\((\d+)\)""") to { match: MatchResult ->
                 "sin(toRadians(${match.groupValues[1]}))"
-            }
-            .replace(Regex("""cos\((\d+)\)""")) { match ->
+            },
+            Regex("""cos\((\d+)\)""") to { match: MatchResult ->
                 "cos(toRadians(${match.groupValues[1]}))"
-            }
-            .replace(Regex("""tan\((\d+)\)""")) { match ->
+            },
+            Regex("""tan\((\d+)\)""") to { match: MatchResult ->
                 "tan(toRadians(${match.groupValues[1]}))"
             }
-    }
-
-    private fun formatResult(result: Double): String {
-        return if (result == result.toLong().toDouble()) {
-            result.toLong().toString()
-        } else {
-            String.format("%.4f", result).trimEnd('0').trimEnd('.')
-        }
+        )
     }
 }
 

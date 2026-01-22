@@ -3,9 +3,9 @@ package com.mathagent
 import android.content.Context
 import com.chaquo.python.Python
 import com.chaquo.python.PyException
+import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 /**
  * SymPy bridge using Chaquopy
@@ -16,6 +16,9 @@ import org.json.JSONObject
 class SymPyBridge(private val context: Context) {
 
     private val python: Python by lazy { Python.getInstance() }
+
+    // Cache the module reference to avoid repeated lookups
+    private val sympyModule by lazy { python.getModule("sympy_bridge") }
 
     /**
      * Initialize Python environment
@@ -29,122 +32,63 @@ class SymPyBridge(private val context: Context) {
     /**
      * Calculate a numeric expression
      */
-    suspend fun calculate(expr: String): SymPyResult = withContext(Dispatchers.IO) {
-        try {
-            val module = python.getModule("sympy_bridge")
-            val result = module.callAttr("calculate", expr)
-            SymPyResult.fromPyObject(result)
-        } catch (e: PyException) {
-            SymPyResult(
-                success = false,
-                result = null,
-                explanation = "Python error: ${e.message}",
-                error = e.message
-            )
-        }
-    }
+    suspend fun calculate(expr: String): SymPyResult =
+        invokeMethod("calculate", expr)
 
     /**
      * Solve an equation
      */
-    suspend fun solveEquation(equation: String): SymPyResult = withContext(Dispatchers.IO) {
-        try {
-            val module = python.getModule("sympy_bridge")
-            val result = module.callAttr("solve_equation", equation)
-            SymPyResult.fromPyObject(result)
-        } catch (e: PyException) {
-            SymPyResult(
-                success = false,
-                result = null,
-                explanation = "Python error: ${e.message}",
-                error = e.message
-            )
-        }
-    }
+    suspend fun solveEquation(equation: String): SymPyResult =
+        invokeMethod("solve_equation", equation)
 
     /**
      * Simplify an algebraic expression
      */
-    suspend fun simplifyExpression(expr: String): SymPyResult = withContext(Dispatchers.IO) {
-        try {
-            val module = python.getModule("sympy_bridge")
-            val result = module.callAttr("simplify_expression", expr)
-            SymPyResult.fromPyObject(result)
-        } catch (e: PyException) {
-            SymPyResult(
-                success = false,
-                result = null,
-                explanation = "Python error: ${e.message}",
-                error = e.message
-            )
-        }
-    }
+    suspend fun simplifyExpression(expr: String): SymPyResult =
+        invokeMethod("simplify_expression", expr)
 
     /**
      * Expand an algebraic expression
      */
-    suspend fun expandExpression(expr: String): SymPyResult = withContext(Dispatchers.IO) {
-        try {
-            val module = python.getModule("sympy_bridge")
-            val result = module.callAttr("expand_expression", expr)
-            SymPyResult.fromPyObject(result)
-        } catch (e: PyException) {
-            SymPyResult(
-                success = false,
-                result = null,
-                explanation = "Python error: ${e.message}",
-                error = e.message
-            )
-        }
-    }
+    suspend fun expandExpression(expr: String): SymPyResult =
+        invokeMethod("expand_expression", expr)
 
     /**
      * Factor an algebraic expression
      */
-    suspend fun factorExpression(expr: String): SymPyResult = withContext(Dispatchers.IO) {
-        try {
-            val module = python.getModule("sympy_bridge")
-            val result = module.callAttr("factor_expression", expr)
-            SymPyResult.fromPyObject(result)
-        } catch (e: PyException) {
-            SymPyResult(
-                success = false,
-                result = null,
-                explanation = "Python error: ${e.message}",
-                error = e.message
-            )
-        }
-    }
+    suspend fun factorExpression(expr: String): SymPyResult =
+        invokeMethod("factor_expression", expr)
 
     /**
      * Generate a Socratic hint
      */
-    suspend fun getHint(problem: String, lastAttempt: String? = null): SymPyResult = withContext(Dispatchers.IO) {
-        try {
-            val module = python.getModule("sympy_bridge")
-            val result = if (lastAttempt != null) {
-                module.callAttr("get_hint", problem, lastAttempt)
-            } else {
-                module.callAttr("get_hint", problem)
-            }
-            SymPyResult.fromPyObject(result)
-        } catch (e: PyException) {
-            SymPyResult(
-                success = false,
-                result = null,
-                explanation = "Python error: ${e.message}",
-                error = e.message
-            )
+    suspend fun getHint(problem: String, lastAttempt: String? = null): SymPyResult {
+        return if (lastAttempt != null) {
+            invokeMethod("get_hint", problem, lastAttempt)
+        } else {
+            invokeMethod("get_hint", problem)
         }
     }
 
     /**
      * Verify a worked example
      */
-    suspend fun verifyWorkedExample(problem: String, studentWork: String): SymPyResult = withContext(Dispatchers.IO) {
+    suspend fun verifyWorkedExample(problem: String, studentWork: String): SymPyResult =
+        invokeMethod("verify_worked_example", problem, studentWork)
+
+    // ==========================================================================
+    // Helper methods
+    // ==========================================================================
+
+    /**
+     * Generic method invoker to reduce boilerplate
+     */
+    private suspend fun invokeMethod(
+        methodName: String,
+        vararg args: Any?
+    ): SymPyResult = withContext(Dispatchers.IO) {
         try {
-            val module = python.getModule("sympy_bridge")
-            val result = module.callAttr("verify_worked_example", problem, studentWork)
+            val result = sympyModule.callAttr(methodName, *args)
             SymPyResult.fromPyObject(result)
         } catch (e: PyException) {
             SymPyResult(
@@ -173,24 +117,21 @@ data class SymPyResult(
          * Parse Python dict result to SymPyResult
          */
         fun fromPyObject(pyObj: Any): SymPyResult {
-            // Convert Python dict to Kotlin map
             val dict = pyObj as? Map<*, *>
-                ?: throw IllegalArgumentException("Expected dict from Python")
-
-            val success = dict["success"] as? Boolean ?: false
-            val result = dict["result"] as? String
-            val explanation = dict["explanation"] as? String ?: ""
-            val error = dict["error"] as? String
-            val steps = dict["steps"] as? List<*>?.map { it.toString() }
-            val solutions = dict["solutions"] as? List<*>?.map { it.toString() }
+                ?: return SymPyResult(
+                    success = false,
+                    result = null,
+                    explanation = "Invalid response from Python",
+                    error = "Expected dict from Python"
+                )
 
             return SymPyResult(
-                success = success,
-                result = result,
-                explanation = explanation,
-                error = error,
-                steps = steps,
-                solutions = solutions
+                success = dict["success"] as? Boolean ?: false,
+                result = dict["result"] as? String,
+                explanation = dict["explanation"] as? String ?: "",
+                error = dict["error"] as? String,
+                steps = (dict["steps"] as? List<*>)?.map { it.toString() },
+                solutions = (dict["solutions"] as? List<*>)?.map { it.toString() }
             )
         }
     }
@@ -198,26 +139,20 @@ data class SymPyResult(
     /**
      * Convert to ToolResult for ReAct agent
      */
-    fun toToolResult(): ToolResult {
-        return ToolResult(
-            success = success,
-            result = result,
-            explanation = explanation,
-            error = error
-        )
-    }
+    fun toToolResult(): ToolResult = ToolResult(
+        success = success,
+        result = result,
+        explanation = explanation,
+        error = error
+    )
 }
 
 /**
  * Android platform for Chaquopy Python
  */
-import com.chaquo.python.android.AndroidPlatform
-
-private class AndroidPlatform(private val context: Context) : com.chaquo.python.Python.Platform {
-    override fun getAttribute(name: String?): Any? {
-        return when (name) {
-            "android.context" -> context
-            else -> null
-        }
+private class AndroidPlatform(private val context: Context) : Python.Platform {
+    override fun getAttribute(name: String?): Any? = when (name) {
+        "android.context" -> context
+        else -> null
     }
 }

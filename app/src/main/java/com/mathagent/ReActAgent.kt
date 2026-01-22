@@ -89,11 +89,11 @@ class ReActAgent(
         val fullPrompt = buildFullPrompt(userMessage)
 
         // ReAct loop: Thought → Action → Observation → ...
-        var maxIterations = 10
+        var remainingIterations = MAX_ITERATIONS
         var finalAnswer: String? = null
         var conversationHistory = fullPrompt
 
-        while (maxIterations-- > 0 && finalAnswer == null) {
+        while (remainingIterations-- > 0 && finalAnswer == null) {
             // Generate from LLM with grammar-constrained output
             val response = StringBuilder()
             llamaEngine.generate(
@@ -201,8 +201,8 @@ $userMessage<|im_end|>
 
     private fun parseToolCall(response: String): ToolCall {
         // Extract action and input from JSON like: {"action": "calculate", "input": "2+2"}
-        val actionMatch = Regex(""""action":\s*"([^"]+)"""").find(response)
-        val inputMatch = Regex(""""input":\s*"([^"]+)"""").find(response)
+        val actionMatch = ACTION_PATTERN.find(response)
+        val inputMatch = INPUT_PATTERN.find(response)
 
         return ToolCall(
             thought = extractThought(response) ?: "Thinking...",
@@ -213,21 +213,28 @@ $userMessage<|im_end|>
 
     private fun extractThought(response: String): String? {
         // Look for thought field if present
-        val match = Regex(""""thought":\s*"([^"]+)"""").find(response)
-        return match?.groupValues?.get(1)
+        return THOUGHT_PATTERN.find(response)?.groupValues?.get(1)
     }
 
     private fun extractAnswer(response: String): String {
         // Extract answer from JSON like: {"answer": "The result is 4"}
-        val match = Regex(""""answer":\s*"([^"]+)"""").find(response)
-        return match?.groupValues?.get(1) ?: response
+        return ANSWER_PATTERN.find(response)?.groupValues?.get(1) ?: response
     }
 
     // ==========================================================================
-    // GBNF Grammar for ReAct JSON constraint
+    // Companion object - constants and compiled patterns
     // ==========================================================================
 
     companion object {
+        // Maximum number of ReAct iterations before giving up
+        private const val MAX_ITERATIONS = 10
+
+        // Pre-compiled regex patterns for JSON parsing
+        private val ACTION_PATTERN = Regex(""""action":\s*"([^"]+)"""")
+        private val INPUT_PATTERN = Regex(""""input":\s*"([^"]+)"""")
+        private val THOUGHT_PATTERN = Regex(""""thought":\s*"([^"]+)"""")
+        private val ANSWER_PATTERN = Regex(""""answer":\s*"([^"]+)"""")
+
         /**
          * Optimized GBNF Grammar for llama.cpp
          *
@@ -256,24 +263,6 @@ $userMessage<|im_end|>
             ws ::= " "*
             quote ::= '"'
         """
-
-        /**
-         * Alternative: Strict grammar for better validation
-         * Use this if the model outputs too much free text
-         */
-        const val REACT_JSON_GRAMMAR_STRICT = """
-            root ::= tool_call | final_answer
-
-            tool_call ::= "{" sp "action" sp ":" sp quote action quote "," sp "input" sp ":" sp quote input quote "}"
-            final_answer ::= "{" sp "answer" sp ":" sp quote answer quote "}"
-
-            action ::= "calculate" | "solve_equation" | "simplify_expression" | "expand_expression" | "factor_expression" | "get_hint" | "verify_worked_example" | "check_answer"
-            input ::= ([^"]*)*
-            answer ::= ([^"]*)*
-
-            sp ::= " "*
-            quote ::= '"'
-        """
     }
 
     private data class ToolCall(
@@ -289,9 +278,6 @@ $userMessage<|im_end|>
 sealed class AgentEvent {
     /** Individual token being streamed */
     data class Token(val text: String) : AgentEvent()
-
-    /** Agent's thought process */
-    data class Thought(val text: String) : AgentEvent()
 
     /** Tool being called */
     data class ToolCall(val tool: String, val input: String) : AgentEvent()

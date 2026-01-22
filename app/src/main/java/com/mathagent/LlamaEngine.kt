@@ -9,8 +9,11 @@ import java.io.File
  * This class provides native access to llama.cpp for on-device LLM inference.
  *
  * Native library name: "mathagent" (builds from app/src/main/cpp/)
+ *
+ * IMPORTANT: Always call close() when done to free native memory.
+ * Use try-finally or implement AutoCloseable pattern in calling code.
  */
-class LlamaEngine(private val context: Context) {
+class LlamaEngine(private val context: Context) : AutoCloseable {
 
     companion object {
         init {
@@ -18,23 +21,11 @@ class LlamaEngine(private val context: Context) {
         }
 
         // Model parameters for Qwen2.5-Math-1.5B-Q4_K_M
-        private const val N_CTX = 2048          // Context window
-        private const val N_GPU_LAYERS = 99    // Offload all to GPU (Vulkan)
-        private const val N_THREADS = 8        // Tensor G2 has 8 CPU cores
-        private const val MAX_TOKENS = 512     // Max tokens per generation
-        private const val TEMPERATURE = 0.7f
-
-        // GBNF Grammar for ReAct tool calling (forces valid JSON)
-        private const val REACT_GRAMMAR = """
-            root ::= tool_call | final_answer | text
-            tool_call ::= "{" ws "action" ws ":" ws quote action quote "," ws "input" ws ":" ws quote input quote "}"
-            final_answer ::= "{" ws "answer" ws ":" ws quote text quote "}"
-            action ::= "calculate" | "solve_equation" | "simplify_expression" | "get_hint"
-            input ::= [^"]*
-            text ::= [^"]*
-            ws ::= " "?
-            quote ::= '"'
-        """
+        internal const val N_CTX = 2048          // Context window
+        internal const val N_GPU_LAYERS = 99    // Offload all to GPU (Vulkan)
+        internal const val N_THREADS = 8        // Tensor G2 has 8 CPU cores
+        internal const val MAX_TOKENS = 512     // Max tokens per generation
+        internal const val TEMPERATURE = 0.7f
     }
 
     private var modelPtr: Long = 0
@@ -81,7 +72,7 @@ class LlamaEngine(private val context: Context) {
      */
     suspend fun generate(
         prompt: String,
-        grammar: String? = REACT_GRAMMAR,
+        grammar: String?,
         onToken: (String) -> Unit
     ): String {
         if (!isLoaded) {
@@ -115,7 +106,7 @@ class LlamaEngine(private val context: Context) {
     /**
      * Free native resources
      */
-    fun close() {
+    override fun close() {
         if (ctxPtr != 0L) {
             nativeFreeContext(ctxPtr)
             ctxPtr = 0
@@ -125,10 +116,6 @@ class LlamaEngine(private val context: Context) {
             modelPtr = 0
         }
         isLoaded = false
-    }
-
-    protected fun finalize() {
-        close()
     }
 
     // ==========================================================================

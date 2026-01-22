@@ -23,10 +23,6 @@ class ModelManager(private val context: Context) {
         private const val DEFAULT_MODEL_NAME = "Qwen2.5-Math-1.5B.Q4_K_M.gguf"
         private const val DEFAULT_MODEL_SIZE = 986048448L // ~940MB
 
-        // GitHub releases config
-        private const val GITHUB_BASE_URL = "https://github.com/YOUR_USERNAME/Android-Math-Agent/releases/download"
-        private const val GITHUB_MODEL_VERSION = "v1.0.0"
-
         /**
          * Registry of available models from HuggingFace
          */
@@ -64,22 +60,6 @@ class ModelManager(private val context: Context) {
                 recommended = false
             )
         )
-
-        /**
-         * Extract filename from URL
-         */
-        private fun getFileNameFromUrl(url: String): String {
-            return url.substringAfterLast("/")
-        }
-
-        /**
-         * Extract model ID from URL
-         */
-        private fun getModelIdFromUrl(url: String): String {
-            val fileName = getFileNameFromUrl(url)
-            val nameWithoutExt = fileName.substringBeforeLast(".gguf")
-            return nameWithoutExt.lowercase().replace(".", "-").replace("_", "-")
-        }
     }
 
     private val modelsDir: File
@@ -140,7 +120,7 @@ class ModelManager(private val context: Context) {
         onProgress: ((bytesDownloaded: Long, totalBytes: Long) -> Unit)? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
-            val targetFileName = fileName ?: getFileNameFromUrl(url)
+            val targetFileName = fileName ?: url.substringAfterLast("/")
             val outputFile = File(modelsDir, "$targetFileName.part")
             val finalFile = File(modelsDir, targetFileName)
 
@@ -196,42 +176,6 @@ class ModelManager(private val context: Context) {
     }
 
     /**
-     * Download with automatic fallback: GitHub → HuggingFace
-     *
-     * @param modelOption Model to download (uses default if null)
-     * @param onProgress Progress callback
-     */
-    suspend fun downloadWithFallback(
-        modelOption: ModelOption? = null,
-        onProgress: ((bytesDownloaded: Long, totalBytes: Long) -> Unit)? = null
-    ): Result<File> = withContext(Dispatchers.IO) {
-        val model = modelOption ?: AVAILABLE_MODELS.first { it.recommended }
-
-        // First try GitHub releases (if configured)
-        val githubUrl = "$GITHUB_BASE_URL/$GITHUB_MODEL_VERSION/${getFileNameFromUrl(model.url)}"
-        var result = tryDownloadFromUrl(githubUrl, model.sizeBytes, onProgress)
-
-        // Fallback to HuggingFace
-        if (result.isFailure) {
-            result = tryDownloadFromUrl(model.url, model.sizeBytes, onProgress)
-        }
-
-        result
-    }
-
-    private suspend fun tryDownloadFromUrl(
-        url: String,
-        expectedSize: Long,
-        onProgress: ((bytesDownloaded: Long, totalBytes: Long) -> Unit)? = null
-    ): Result<File> {
-        return try {
-            downloadFromUrl(url, null, expectedSize, onProgress)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
      * Delete a model file
      */
     fun deleteModel(fileName: String): Boolean {
@@ -267,7 +211,7 @@ class ModelManager(private val context: Context) {
     fun getModelsInfo(): List<ModelInfo> {
         return getDownloadedModels().map { file ->
             val matchingOption = AVAILABLE_MODELS.find {
-                getFileNameFromUrl(it.url) == file.name
+                it.url.substringAfterLast("/") == file.name
             }
 
             ModelInfo(
