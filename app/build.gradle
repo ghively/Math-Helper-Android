@@ -1,8 +1,19 @@
+buildscript {
+    repositories {
+        maven { url "https://chaquo.com/maven" }
+    }
+    dependencies {
+        classpath "com.chaquo.python:gradle:12.0.0"
+    }
+}
+
 plugins {
     id "com.android.application"
-    id "org.jetbrains.kotlin.android"
-    id "com.chaquo.python" version "12.0.0"
+    id "org.jetbrains.kotlin.android" version "1.9.22"
 }
+
+// Apply Chaquopy plugin using older syntax for compatibility
+apply plugin: "com.chaquo.python"
 
 android {
     namespace "com.mathagent"
