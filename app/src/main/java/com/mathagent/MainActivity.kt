@@ -6,48 +6,57 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Input
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.*
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.graphicslayer.radius
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Main Activity for Math Mentor Android App
+ * Math Mentor - Socratic Math Tutor
+ *
+ * A fully offline Android app powered by Qwen2.5-Math running locally via llama.cpp.
  *
  * Features:
- * - Model download from GitHub/HuggingFace
- * - Streaming chat interface with typewriter effect
- * - Tool call visualization
- * - Socratic math tutoring
- * - Qwen2.5-Math-1.5B running locally via llama.cpp
+ * - 100% offline operation after model download
+ * - 8 math tools with SymPy integration
+ * - Glassmorphism UI matching web aesthetic
+ * - Streaming responses with typewriter effect
+ * - Vulkan GPU acceleration
  */
 class MainActivity : ComponentActivity() {
     private lateinit var llamaEngine: LlamaEngine
@@ -70,6 +79,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Enable edge-to-edge display
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         // Initialize components
         llamaEngine = LlamaEngine(applicationContext)
         reactAgent = ReActAgent(llamaEngine, applicationContext)
@@ -80,29 +92,35 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MathMentorTheme {
-                when (val state = appState.value) {
-                    is AppState.Loading -> LoadingScreen()
-                    is AppState.PermissionDenied -> PermissionDeniedScreen {
-                        checkPermission()
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Ambient background glows
+                    AmbientBackgroundGlows()
+
+                    // Main content based on state
+                    when (val state = appState.value) {
+                        is AppState.Loading -> LoadingScreen()
+                        is AppState.PermissionDenied -> PermissionDeniedScreen {
+                            checkPermission()
+                        }
+                        is AppState.DownloadRequired -> ModelDownloadScreen(
+                            onDownloadModel = { model -> startDownload(model) },
+                            onDownloadCustomUrl = { url -> downloadCustomUrl(url) }
+                        )
+                        is AppState.Downloading -> DownloadingScreen(
+                            model = state.model,
+                            progress = state.progress,
+                            onCancel = { /* TODO */ }
+                        )
+                        is AppState.Ready -> ChatScreen(
+                            agent = reactAgent,
+                            isModelLoaded = true,
+                            modelManager = modelManager
+                        )
+                        is AppState.Error -> ErrorScreen(
+                            message = (state as AppState.Error).message,
+                            onRetry = { checkAndLoadModel() }
+                        )
                     }
-                    is AppState.DownloadRequired -> ModelDownloadScreen(
-                        onDownloadModel = { model -> startDownload(model) },
-                        onDownloadCustomUrl = { url -> downloadCustomUrl(url) }
-                    )
-                    is AppState.Downloading -> DownloadingScreen(
-                        model = state.model,
-                        progress = state.progress,
-                        onCancel = { /* TODO: Implement cancel */ }
-                    )
-                    is AppState.Ready -> ChatScreen(
-                        agent = reactAgent,
-                        isModelLoaded = true,
-                        modelManager = modelManager
-                    )
-                    is AppState.Error -> ErrorScreen(
-                        message = (state as AppState.Error).message,
-                        onRetry = { checkAndLoadModel() }
-                    )
                 }
             }
         }
@@ -128,7 +146,6 @@ class MainActivity : ComponentActivity() {
 
             when {
                 modelManager.isAnyModelDownloaded() -> {
-                    // Model exists, load it
                     val success = loadModel(modelManager.activeModelFile.absolutePath)
                     if (success) {
                         appState.value = AppState.Ready
@@ -137,7 +154,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 else -> {
-                    // Need to download
                     appState.value = AppState.DownloadRequired
                 }
             }
@@ -241,72 +257,235 @@ sealed class AppState {
 }
 
 // ==========================================================================
-// Screen Composables
+// Theme
 // ==========================================================================
 
 @Composable
-fun LoadingScreen() {
+fun MathMentorTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Color(0xFF10B981),           // Emerald 500
+            onPrimary = Color(0xFFFFFFFF),
+            primaryContainer = Color(0xFF064E3B),  // Emerald 900
+            onPrimaryContainer = Color(0xFF6EE7D7), // Emerald 100
+            secondary = Color(0xFF14B8A6),         // Teal 600
+            onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = Color(0xFF0F766E), // Teal 900
+            onSecondaryContainer = Color(0xFF5DDAD5), // Teal 100
+            tertiary = Color(0xFF8B5CF6),          // Purple 500
+            onTertiary = Color(0xFFFFFFFF),
+            background = Color(0xFF09090B),         // Zinc 950
+            onBackground = Color(0xFFFAFAFA),
+            surface = Color(0xFF18181B),           // Zinc 900
+            onSurface = Color(0xFFFAFAFA),
+            surfaceVariant = Color(0xFF27272A),    // Zinc 800
+            onSurfaceVariant = Color(0xFFA1A1AA),
+        ),
+        typography = Typography(
+            displayLarge = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Bold,
+                fontSize = 32.sp,
+            ),
+            titleLarge = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+            ),
+            bodyLarge = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal,
+                fontSize = 16.sp,
+            ),
+            labelMedium = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                fontSize = 12.sp,
+            ),
+        ),
+        content = content
+    )
+}
+
+// ==========================================================================
+// Ambient Background Glows
+// ==========================================================================
+
+@Composable
+fun AmbientBackgroundGlows() {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
+                Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
+                        Color(0xFF38B8F8).copy(alpha = 0.1f),  // Sky blue
+                        Color.Transparent,
+                    ),
+                    center = Offset(0f, 0f),
+                    radius = 600f
                 )
-            ),
+            )
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF8B5CF6).copy(alpha = 0.15f), // Purple
+                        Color.Transparent,
+                    ),
+                    center = Offset(Float.MAX_VALUE, 0f),
+                    radius = 600f
+                )
+            )
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFEC4899).copy(alpha = 0.1f),  // Pink
+                        Color.Transparent,
+                    ),
+                    center = Offset(Float.MAX_VALUE, Float.MAX_VALUE),
+                    radius = 600f
+                )
+            )
+    )
+}
+
+// ==========================================================================
+// Loading Screen
+// ==========================================================================
+
+@Composable
+fun LoadingScreen() {
+    val infiniteTransition = rememberInfiniteTransition(label = "loading")
+
+    val floatOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "float"
+    )
+
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, delayMillis = 200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Text(
-                text = "🧮",
-                fontSize = 64.sp
-            )
+            // Logo with gradient
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .offset(y = floatOffset.dp)
+                    .shadow(
+                        elevation = 16.dp,
+                        spotColor = Color(0xFF10B981).copy(alpha = 0.4f),
+                        ambientColor = Color(0xFF10B981).copy(alpha = 0.2f)
+                    )
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF10B981), // Emerald 500
+                                Color(0xFF0D9488), // Emerald 600
+                                Color(0xFF14B8A6), // Teal 600
+                            )
+                        ),
+                        CircleShape
+                    )
+                    .border(2.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "π",
+                    fontSize = 42.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
             Text(
                 text = "Math Mentor",
-                fontSize = 24.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
-            CircularProgressIndicator(
-                color = Color(0xFF3B82F6)
+
+            Text(
+                text = "SOCRATIC TUTOR",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 4.sp,
+                color = Color(0xFF34D399).copy(alpha = 0.7f)
             )
+
+            // Loading indicator
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 16.dp)
+            ) {
+                repeat(3) { index ->
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(
+                                Color.White.copy(alpha = pulseAlpha),
+                                CircleShape
+                            )
+                    )
+                }
+            }
+
             Text(
                 text = "Initializing...",
-                color = Color(0xFF94A3B8)
+                fontSize = 14.sp,
+                color = Color(0xFF71717A)
             )
         }
     }
 }
+
+// ==========================================================================
+// Permission Denied Screen
+// ==========================================================================
 
 @Composable
 fun PermissionDeniedScreen(onRequest: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
-                )
-            ),
+            .padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Color(0xFF18181B).copy(alpha = 0.8f),
+                    RoundedCornerShape(24.dp)
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                .padding(32.dp)
         ) {
             Text(
                 text = "⚠️",
-                fontSize = 64.sp
+                fontSize = 48.sp
             )
             Text(
                 text = "Storage Permission Required",
@@ -315,98 +494,131 @@ fun PermissionDeniedScreen(onRequest: () -> Unit) {
                 color = Color.White
             )
             Text(
-                text = "Math Mentor needs to download the AI model (~940MB) to your device.",
-                color = Color(0xFF94A3B8),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                text = "Math Mentor needs permission to download the AI model (~940MB) to your device.",
+                color = Color(0xFFA1A1AA),
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp
             )
             Button(
                 onClick = onRequest,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF3B82F6)
-                )
+                    containerColor = Color.Transparent
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .shadow(
+                        elevation = 4.dp,
+                        spotColor = Color(0xFF10B981).copy(alpha = 0.3f),
+                        ambientColor = Color.Transparent
+                    )
+                    .border(
+                        width = 2.dp,
+                        color = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF10B981),
+                                Color(0xFF14B8A6),
+                            )
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF10B981).copy(alpha = 0.2f),
+                                Color(0xFF14B8A6).copy(alpha = 0.1f),
+                            )
+                        )
+                    )
             ) {
-                Text("Grant Permission")
-            }
-        }
-    }
-}
-
-@Composable
-fun DownloadScreen(
-    progress: Float,
-    message: String,
-    onStartDownload: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
-                )
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Download,
-                contentDescription = null,
-                tint = Color(0xFF3B82F6),
-                modifier = Modifier.size(64.dp)
-            )
-            Text(
-                text = "Download Math Model",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Text(
-                text = "Qwen2.5-Math-1.5B (~940MB)",
-                color = Color(0xFF94A3B8)
-            )
-
-            if (progress > 0) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                    color = Color(0xFF3B82F6)
-                )
                 Text(
-                    text = "${(progress * 100).toInt()}%",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
+                    "Grant Permission",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
                 )
-                Text(
-                    text = message,
-                    color = Color(0xFF94A3B8),
-                    fontSize = 12.sp
-                )
-            } else {
-                Button(
-                    onClick = onStartDownload,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF3B82F6)
-                    )
-                ) {
-                    Text("Download Model")
-                }
             }
         }
     }
 }
 
 // ==========================================================================
-// Model Download Screen (NEW)
+// Error Screen
+// ==========================================================================
+
+@Composable
+fun ErrorScreen(message: String, onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Color(0xFF18181B).copy(alpha = 0.8f),
+                    RoundedCornerShape(24.dp)
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                .padding(32.dp)
+        ) {
+            Text(
+                text = "❌",
+                fontSize = 48.sp
+            )
+            Text(
+                text = "Oops!",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                text = message,
+                color = Color(0xFFA1A1AA),
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp
+            )
+            Button(
+                onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Transparent
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .shadow(
+                        elevation = 4.dp,
+                        spotColor = Color(0xFF10B981).copy(alpha = 0.3f),
+                        ambientColor = Color.Transparent
+                    )
+                    .border(
+                        width = 2.dp,
+                        color = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF10B981),
+                                Color(0xFF14B8A6),
+                            )
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            ) {
+                Text(
+                    "Retry",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+// ==========================================================================
+// Model Download Screen
 // ==========================================================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -419,90 +631,100 @@ fun ModelDownloadScreen(
     val tabs = listOf("Browse", "Custom URL")
     var customUrl by remember { mutableStateOf("") }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
-                )
-            )
+            .padding(16.dp)
     ) {
+        // Header
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFF0F172A),
-                shadowElevation = 4.dp
+            // Logo
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .shadow(
+                        elevation = 12.dp,
+                        spotColor = Color(0xFF10B981).copy(alpha = 0.4f),
+                        ambientColor = Color(0xFF10B981).copy(alpha = 0.2f)
+                    )
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF10B981),
+                                Color(0xFF14B8A6),
+                            )
+                        ),
+                        CircleShape
+                    )
+                    .border(2.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDownload,
-                            contentDescription = null,
-                            tint = Color(0xFF3B82F6),
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Column {
-                            Text(
-                                text = "Download Model",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Choose a model or paste a HuggingFace URL",
-                                fontSize = 12.sp,
-                                color = Color(0xFF94A3B8)
-                            )
-                        }
-                    }
-
-                    // Tab Row
-                    TabRow(
-                        selectedTabIndex = selectedTab,
-                        containerColor = Color.Transparent,
-                        contentColor = Color(0xFF3B82F6),
-                        indicator = { tabPositions ->
-                            TabRowDefaults.SecondaryIndicator(
-                                modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                                color = Color(0xFF3B82F6)
-                            )
-                        }
-                    ) {
-                        tabs.forEachIndexed { index, title ->
-                            Tab(
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index },
-                                text = {
-                                    Text(
-                                        title,
-                                        color = if (selectedTab == index) Color.White else Color(0xFF94A3B8)
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Content
-            when (selectedTab) {
-                0 -> ModelBrowserContent(onDownloadModel = onDownloadModel)
-                1 -> CustomUrlContent(
-                    url = customUrl,
-                    onUrlChange = { customUrl = it },
-                    onDownload = { if (customUrl.isNotBlank()) onDownloadCustomUrl(customUrl) }
+                Text(
+                    text = "π",
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
             }
+
+            Text(
+                text = "Download Model",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Text(
+                text = "Choose a model or paste a HuggingFace URL",
+                fontSize = 14.sp,
+                color = Color(0xFF71717A)
+            )
+        }
+
+        // Tab Row
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color.Transparent,
+            contentColor = Color(0xFF10B981),
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier
+                        .tabIndicatorOffset(tabPositions[selectedTab])
+                        .padding(horizontal = 24.dp),
+                    color = Color(0xFF10B981),
+                    height = 3.dp
+                )
+            }
+        ) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            title,
+                            color = if (selectedTab == index) Color.White else Color(0xFF71717A),
+                            fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                )
+            }
+        }
+
+        // Content
+        when (selectedTab) {
+            0 -> ModelBrowserContent(onDownloadModel = onDownloadModel)
+            1 -> CustomUrlContent(
+                url = customUrl,
+                onUrlChange = { customUrl = it },
+                onDownload = { if (customUrl.isNotBlank()) onDownloadCustomUrl(customUrl) }
+            )
         }
     }
 }
@@ -512,15 +734,15 @@ fun ModelBrowserContent(onDownloadModel: (ModelOption) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "Available Models",
-            fontSize = 16.sp,
+            text = "AVAILABLE MODELS",
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.White
+            letterSpacing = 2.sp,
+            color = Color(0xFF71717A)
         )
 
         ModelManager.AVAILABLE_MODELS.forEach { model ->
@@ -534,21 +756,39 @@ fun ModelBrowserContent(onDownloadModel: (ModelOption) -> Unit) {
 
 @Composable
 fun ModelCard(model: ModelOption, onClick: () -> Unit) {
+    var pressed by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { }
+            )
+            .combinedClick(
+                onClick = onClick,
+                onPress = { pressed = true },
+                onRelease = { pressed = false }
+            ),
         colors = CardDefaults.cardColors(
-            containerColor = if (model.recommended) Color(0xFF1E3A5F) else Color(0xFF1E293B)
+            containerColor = if (model.recommended)
+                Color(0xFF064E3B).copy(alpha = 0.5f) // Emerald 900
+            else
+                Color(0xFF18181B).copy(alpha = 0.8f) // Zinc 900
         ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(20.dp),
         border = if (model.recommended)
-            androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B82F6))
-        else null
+            androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color(0xFF10B981).copy(alpha = 0.5f)
+            )
+        else null,
+        elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -567,15 +807,15 @@ fun ModelCard(model: ModelOption, onClick: () -> Unit) {
                         )
                         if (model.recommended) {
                             Surface(
-                                color = Color(0xFF3B82F6),
-                                shape = RoundedCornerShape(4.dp)
+                                color = Color(0xFF10B981),
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = "RECOMMENDED",
+                                    text = "BEST",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
@@ -583,14 +823,10 @@ fun ModelCard(model: ModelOption, onClick: () -> Unit) {
                     Text(
                         text = model.description,
                         fontSize = 13.sp,
-                        color = Color(0xFF94A3B8)
+                        color = Color(0xFFA1A1AA),
+                        lineHeight = 18.sp
                     )
                 }
-                Icon(
-                    imageVector = Icons.Default.CloudDownload,
-                    contentDescription = "Download",
-                    tint = Color(0xFF3B82F6)
-                )
             }
 
             Row(
@@ -600,16 +836,40 @@ fun ModelCard(model: ModelOption, onClick: () -> Unit) {
                 Text(
                     text = model.sizeDisplay,
                     fontSize = 12.sp,
-                    color = Color(0xFF64748B)
+                    fontFamily = FontFamily.Monospace,
+                    color = Color(0xFF71717A)
                 )
                 Button(
                     onClick = onClick,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF3B82F6)
+                        containerColor = Color.Transparent
                     ),
-                    modifier = Modifier.height(36.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                    modifier = Modifier
+                        .height(44.dp)
+                        .shadow(
+                            elevation = 4.dp,
+                            spotColor = Color(0xFF10B981).copy(alpha = 0.3f),
+                            ambientColor = Color.Transparent
+                        )
+                        .border(
+                            width = 2.dp,
+                            color = Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF10B981),
+                                    Color(0xFF14B8A6),
+                                )
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
                 ) {
-                    Text("Download", fontSize = 13.sp)
+                    Text(
+                        "Download",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
                 }
             }
         }
@@ -625,12 +885,19 @@ fun CustomUrlContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Info card
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-            shape = RoundedCornerShape(12.dp)
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF18181B).copy(alpha = 0.8f)
+            ),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color.White.copy(alpha = 0.1f)
+            )
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
@@ -640,7 +907,8 @@ fun CustomUrlContent(
                     Icon(
                         imageVector = Icons.Default.Input,
                         contentDescription = null,
-                        tint = Color(0xFF3B82F6)
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(24.dp)
                     )
                     Text(
                         text = "Direct HuggingFace URL",
@@ -652,6 +920,7 @@ fun CustomUrlContent(
             }
         }
 
+        // URL input
         OutlinedTextField(
             value = url,
             onValueChange = onUrlChange,
@@ -659,37 +928,45 @@ fun CustomUrlContent(
             placeholder = {
                 Text(
                     "https://huggingface.co/.../model.gguf",
-                    color = Color(0xFF64748B)
+                    color = Color(0xFF71717A)
                 )
             },
             colors = TextFieldDefaults.outlinedTextFieldColors(
-                containerColor = Color(0xFF1E293B),
+                containerColor = Color(0xFF09090B).copy(alpha = 0.5f),
                 textColor = Color.White,
-                placeholderColor = Color(0xFF64748B),
-                focusedBorderColor = Color(0xFF3B82F6),
-                unfocusedBorderColor = Color(0xFF475569)
+                placeholderColor = Color(0xFF71717A),
+                focusedBorderColor = Color(0xFF10B981),
+                unfocusedBorderColor = Color(0xFF27272A)
             ),
-            shape = RoundedCornerShape(12.dp),
-            minLines = 3,
-            maxLines = 5
+            shape = RoundedCornerShape(16.dp),
+            minLines = 4,
+            maxLines = 6
         )
 
+        // Tip card
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A5F)),
-            shape = RoundedCornerShape(8.dp)
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF064E3B).copy(alpha = 0.3f)
+            ),
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color(0xFF10B981).copy(alpha = 0.3f)
+            )
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = "💡 Tip",
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF60A5FA)
+                    color = Color(0xFF34D399)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Paste any direct download link to a .gguf model file from HuggingFace. The model must be in GGUF format for llama.cpp.",
-                    fontSize = 12.sp,
-                    color = Color(0xFF94A3B8)
+                    text = "Paste any direct download link to a .gguf model file from HuggingFace. The model must be in GGUF format.",
+                    fontSize = 13.sp,
+                    color = Color(0xFFA1A1AA),
+                    lineHeight = 18.sp
                 )
             }
         }
@@ -699,19 +976,43 @@ fun CustomUrlContent(
         Button(
             onClick = onDownload,
             enabled = url.isNotBlank() && url.endsWith(".gguf", ignoreCase = true),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .shadow(
+                    elevation = 4.dp,
+                    spotColor = Color(0xFF10B981).copy(alpha = 0.3f),
+                    ambientColor = Color.Transparent
+                )
+                .border(
+                    width = 2.dp,
+                    color = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF10B981),
+                            Color(0xFF14B8A6),
+                        )
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ),
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF3B82F6),
-                disabledContainerColor = Color(0xFF334155)
+                containerColor = Color.Transparent
             )
         ) {
             Icon(
-                imageVector = Icons.Default.Download,
+                imageVector = Icons.Default.CloudDownload,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Download from URL")
+            Text(
+                "Download from URL",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (url.isNotBlank() && url.endsWith(".gguf", ignoreCase = true))
+                    Color.White
+                else
+                    Color.White.copy(alpha = 0.5f)
+            )
         }
     }
 }
@@ -725,26 +1026,26 @@ fun DownloadingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
-                )
-            ),
+            .padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Color(0xFF18181B).copy(alpha = 0.8f),
+                    RoundedCornerShape(24.dp)
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                .padding(32.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.CloudDownload,
                 contentDescription = null,
-                tint = Color(0xFF3B82F6),
-                modifier = Modifier.size(64.dp)
+                tint = Color(0xFF10B981),
+                modifier = Modifier.size(48.dp)
             )
 
             Text(
@@ -757,33 +1058,42 @@ fun DownloadingScreen(
             Text(
                 text = model.name,
                 fontSize = 14.sp,
-                color = Color(0xFF94A3B8)
+                color = Color(0xFFA1A1AA)
             )
 
+            // Progress card
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF09090B).copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    Color.White.copy(alpha = 0.1f)
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(20.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
                             text = "${(progress * 100).toInt()}%",
-                            fontSize = 24.sp,
+                            fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace
                         )
                         Text(
                             text = model.sizeDisplay,
                             fontSize = 14.sp,
-                            color = Color(0xFF94A3B8)
+                            color = Color(0xFF71717A),
+                            fontFamily = FontFamily.Monospace
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     LinearProgressIndicator(
                         progress = { progress },
@@ -791,69 +1101,23 @@ fun DownloadingScreen(
                             .fillMaxWidth()
                             .height(8.dp)
                             .clip(RoundedCornerShape(4.dp)),
-                        color = Color(0xFF3B82F6)
+                        color = Color(0xFF10B981),
+                        trackColor = Color(0xFF27272A)
                     )
                 }
             }
 
             Text(
                 text = "Please wait while the model downloads...",
-                color = Color(0xFF64748B),
-                fontSize = 12.sp
+                fontSize = 13.sp,
+                color = Color(0xFF71717A)
             )
-        }
-    }
-}
-
-@Composable
-fun ErrorScreen(message: String, onRetry: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
-                )
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Text(
-                text = "❌",
-                fontSize = 64.sp
-            )
-            Text(
-                text = "Oops!",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Text(
-                text = message,
-                color = Color(0xFF94A3B8),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Button(
-                onClick = onRetry,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF3B82F6)
-                )
-            ) {
-                Text("Retry")
-            }
         }
     }
 }
 
 // ==========================================================================
-// Chat Screen
+// Chat Screen - Main App Interface
 // ==========================================================================
 
 @Composable
@@ -870,7 +1134,7 @@ fun ChatScreen(agent: ReActAgent, isModelLoaded: Boolean, modelManager: ModelMan
                 ChatMessage(
                     id = "0",
                     role = MessageRole.Assistant,
-                    content = "Hi! 👋 I'm your Socratic Math Tutor. I'm running locally on your device using Qwen2.5-Math. Ask me anything about math!",
+                    content = "Hi! 👋 I'm your Socratic Math Tutor. I'll help you discover answers through questions, not just give you solutions. That's how we learn! Try asking me about any math problem.",
                     timestamp = System.currentTimeMillis()
                 )
             )
@@ -883,105 +1147,412 @@ fun ChatScreen(agent: ReActAgent, isModelLoaded: Boolean, modelManager: ModelMan
         }
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0F172A),
-                        Color(0xFF1E1B4B)
-                    )
-                )
-            )
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
+        // Header
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF18181B).copy(alpha = 0.6f)
+            ),
+            shape = RoundedCornerShape(20.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color.White.copy(alpha = 0.1f)
+            ),
+            elevation = CardDefaults.cardElevation(0.dp)
         ) {
-            Header(isModelLoaded = true)
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(
-                    items = messages,
-                    key = { it.id }
-                ) { message ->
-                    MessageBubble(message)
+                // Logo
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .shadow(
+                            elevation = 8.dp,
+                            spotColor = Color(0xFF10B981).copy(alpha = 0.4f),
+                            ambientColor = Color(0xFF10B981).copy(alpha = 0.2f)
+                        )
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF10B981),
+                                    Color(0xFF14B8A6),
+                                )
+                            ),
+                            CircleShape
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "π",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Math Mentor",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Socratic Tutor • Offline",
+                        fontSize = 11.sp,
+                        color = Color(0xFF34D399).copy(alpha = 0.7f),
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Status indicator
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(
+                                Color(0xFF10B981),
+                                CircleShape
+                            )
+                            .pulse()
+                    )
+                    Text(
+                        text = if (isModelLoaded) "Ready" else "Loading",
+                        fontSize = 11.sp,
+                        color = if (isModelLoaded) Color(0xFF34D399) else Color(0xFFFBBF24)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Messages
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            items(
+                items = messages,
+                key = { it.id }
+            ) { message ->
+                AnimatedMessageBubble(message)
+            }
+        }
+
+        // Input Area
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF09090B).copy(alpha = 0.9f)
+            ),
+            shape = RoundedCornerShape(28.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color.White.copy(alpha = 0.08f)
+            ),
+            elevation = CardDefaults.cardElevation(0.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = inputState.value,
+                        onValueChange = { inputState.value = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = {
+                            Text(
+                                "Ask me about your math problem...",
+                                color = Color(0xFF71717A),
+                                fontSize = 15.sp
+                            )
+                        },
+                        colors = TextFieldDefaults.outlinedTextFieldColors(
+                            containerColor = Color.Transparent,
+                            textColor = Color.White,
+                            placeholderColor = Color(0xFF71717A),
+                            cursorColor = Color(0xFF10B981),
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent
+                        ),
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4
+                    )
+
+                    IconButton(
+                        onClick = {
+                            val userMessage = inputState.value.trim()
+                            if (userMessage.isNotEmpty() && !isGenerating.value && isModelLoaded) {
+                                messages.add(
+                                    ChatMessage(
+                                        id = UUID.randomUUID().toString(),
+                                        role = MessageRole.User,
+                                        content = userMessage,
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                )
+
+                                isGenerating.value = true
+                                inputState.value = ""
+
+                                scope.launch {
+                                    val assistantMessageId = UUID.randomUUID().toString()
+                                    var fullContent = ""
+
+                                    messages.add(
+                                        ChatMessage(
+                                            id = assistantMessageId,
+                                            role = MessageRole.Assistant,
+                                            content = "",
+                                            timestamp = System.currentTimeMillis()
+                                        )
+                                    )
+
+                                    agent.chat(userMessage).collect { event ->
+                                        when (event) {
+                                            is AgentEvent.Token -> {
+                                                fullContent += event.text
+                                                updateMessageContent(messages, assistantMessageId, fullContent)
+                                            }
+                                            is AgentEvent.ToolCall -> {
+                                                updateMessageContent(
+                                                    messages,
+                                                    assistantMessageId,
+                                                    fullContent + "\n🔧 ${event.tool}"
+                                                )
+                                            }
+                                            is AgentEvent.FinalAnswer -> {
+                                                fullContent = event.text
+                                                updateMessageContent(messages, assistantMessageId, fullContent)
+                                            }
+                                            is AgentEvent.Error -> {
+                                                updateMessageContent(
+                                                    messages,
+                                                    assistantMessageId,
+                                                    fullContent + "\n❌ Error: ${event.message}"
+                                                )
+                                            }
+                                            else -> {}
+                                        }
+                                    }
+
+                                    isGenerating.value = false
+                                }
+                            }
+                        },
+                        enabled = !isGenerating.value && isModelLoaded && inputState.value.isNotBlank(),
+                        modifier = Modifier
+                            .size(52.dp)
+                            .then(
+                                if (inputState.value.isNotBlank()) {
+                                    Modifier.shadow(
+                                        elevation = 8.dp,
+                                        spotColor = Color(0xFF10B981).copy(alpha = 0.5f),
+                                        ambientColor = Color.Transparent
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .background(
+                                if (inputState.value.isNotBlank())
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF10B981),
+                                            Color(0xFF0D9488),
+                                        )
+                                    )
+                                else
+                                    Color(0xFF27272A)
+                                ,
+                                CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "Send",
+                            tint = if (inputState.value.isNotBlank()) Color.White else Color(0xFF71717A)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================================================
+// Animated Message Bubble
+// ==========================================================================
+
+@Composable
+fun AnimatedMessageBubble(message: ChatMessage) {
+    val isUser = message.role == MessageRole.User
+
+    val density = LocalDensity.current
+    val visibleState = remember { MutableTransitionState(false) }
+
+    LaunchedEffect(message.id) {
+        visibleState.targetState = true
+    }
+
+    val scale by animateFloatAsState(
+        targetValue = if (visibleState.targetState) 1f else 0.95f,
+        animationSpec = spring(
+            dampingRatio = 0.8f,
+            stiffness = 300f
+        ),
+        label = "scale"
+    )
+
+    val alpha by animateFloatAsState(
+        targetValue = if (visibleState.targetState) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "alpha"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(alpha)
+            .scale(scale),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        // Avatar (for assistant)
+        if (!isUser) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .shadow(
+                        elevation = 6.dp,
+                        spotColor = Color(0xFF8B5CF6).copy(alpha = 0.3f),
+                        ambientColor = Color.Transparent
+                    )
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF8B5CF6), // Purple 500
+                                Color(0xFFA855F7), // Purple 500
+                            )
+                        ),
+                        CircleShape
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SmartToy,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        // Message bubble
+        Column(
+            modifier = Modifier.widthIn(max = 280.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isUser)
+                        Color.Transparent
+                    else
+                        Color.White.copy(alpha = 0.1f)
+                ),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isUser) {
+                        Color.Transparent
+                    } else {
+                        Color(0xFF18181B).copy(alpha = 0.95f)
+                    }
+                ),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .then(
+                            if (isUser) {
+                                Modifier.background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF10B981),
+                                            Color(0xFF14B8A6),
+                                        )
+                                    ),
+                                    RoundedCornerShape(20.dp)
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = message.content,
+                        color = if (isUser) Color.White else Color(0xFFFAFAFA),
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp
+                    )
                 }
             }
 
-            InputBar(
-                value = inputState.value,
-                onValueChange = { inputState.value = it },
-                onSend = {
-                    val userMessage = inputState.value.trim()
-                    if (userMessage.isNotEmpty() && !isGenerating.value && isModelLoaded) {
-                        messages.add(
-                            ChatMessage(
-                                id = UUID.randomUUID().toString(),
-                                role = MessageRole.User,
-                                content = userMessage,
-                                timestamp = System.currentTimeMillis()
-                            )
-                        )
-
-                        isGenerating.value = true
-                        inputState.value = ""
-
-                        scope.launch {
-                            val assistantMessageId = UUID.randomUUID().toString()
-                            var fullContent = ""
-
-                            messages.add(
-                                ChatMessage(
-                                    id = assistantMessageId,
-                                    role = MessageRole.Assistant,
-                                    content = "",
-                                    timestamp = System.currentTimeMillis()
-                                )
-                            )
-
-                            agent.chat(userMessage).collect { event ->
-                                when (event) {
-                                    is AgentEvent.Token -> {
-                                        fullContent += event.text
-                                        updateMessageContent(messages, assistantMessageId, fullContent)
-                                    }
-                                    is AgentEvent.ToolCall -> {
-                                        updateMessageContent(
-                                            messages,
-                                            assistantMessageId,
-                                            fullContent + "\n🔧 Using: ${event.tool}"
-                                        )
-                                    }
-                                    is AgentEvent.FinalAnswer -> {
-                                        fullContent = event.text
-                                        updateMessageContent(messages, assistantMessageId, fullContent)
-                                    }
-                                    is AgentEvent.Error -> {
-                                        updateMessageContent(
-                                            messages,
-                                            assistantMessageId,
-                                            fullContent + "\n❌ Error: ${event.message}"
-                                        )
-                                    }
-                                    else -> {}
-                                }
-                            }
-
-                            isGenerating.value = false
-                        }
-                    }
-                },
-                enabled = !isGenerating.value && isModelLoaded
+            // Timestamp
+            Text(
+                text = formatTimestamp(message.timestamp),
+                fontSize = 11.sp,
+                color = Color(0xFF71717A),
+                modifier = Modifier.padding(
+                    start = if (isUser) 0.dp else 4.dp,
+                    end = if (isUser) 4.dp else 0.dp
+                )
             )
+        }
+
+        // Avatar (for user)
+        if (isUser) {
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                        Color(0xFF27272A),
+                        CircleShape
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = Color(0xFFA1A1AA),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
@@ -993,134 +1564,13 @@ fun updateMessageContent(messages: MutableList<ChatMessage>, id: String, newCont
     }
 }
 
-@Composable
-fun Header(isModelLoaded: Boolean) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(64.dp),
-        color = Color(0xFF0F172A),
-        shadowElevation = 4.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "🧮 Math Mentor",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = if (isModelLoaded) "Qwen2.5-Math • Ready" else "Loading...",
-                fontSize = 12.sp,
-                color = if (isModelLoaded) Color(0xFF4ADE80) else Color(0xFFFBBF24)
-            )
-        }
-    }
-}
-
-@Composable
-fun MessageBubble(message: ChatMessage) {
-    val isUser = message.role == MessageRole.User
-    val backgroundColor = if (isUser) {
-        Color(0xFF3B82F6)
-    } else {
-        Color(0xFF1E293B)
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-    ) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(backgroundColor)
-                .padding(12.dp)
-        ) {
-            Column {
-                Text(
-                    text = message.content,
-                    color = Color.White,
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = formatTimestamp(message.timestamp),
-                    color = if (isUser) Color(0xFFDBEAFE) else Color(0xFF64748B),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun InputBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSend: () -> Unit,
-    enabled: Boolean
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFF0F172A),
-        tonalElevation = 8.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask me a math question...", color = Color(0xFF64748B)) },
-                colors = TextFieldDefaults.outlinedTextFieldColors(
-                    containerColor = Color(0xFF1E293B),
-                    textColor = Color.White,
-                    placeholderColor = Color(0xFF64748B),
-                    focusedBorderColor = Color(0xFF3B82F6),
-                    unfocusedBorderColor = Color.Transparent
-                ),
-                shape = RoundedCornerShape(24.dp),
-                maxLines = 3
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            IconButton(
-                onClick = onSend,
-                enabled = enabled && value.isNotBlank(),
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        if (enabled && value.isNotBlank())
-                            Color(0xFF3B82F6)
-                        else
-                            Color(0xFF334155),
-                        RoundedCornerShape(24.dp)
-                    )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Send",
-                    tint = Color.White
-                )
-            }
-        }
-    }
+fun formatTimestamp(timestamp: Long): String {
+    val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+    return sdf.format(Date(timestamp))
 }
 
 // ==========================================================================
-// Data types
+// Data Types
 // ==========================================================================
 
 enum class MessageRole { User, Assistant }
@@ -1132,20 +1582,28 @@ data class ChatMessage(
     val timestamp: Long
 )
 
-fun formatTimestamp(timestamp: Long): String {
-    val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
-    return sdf.format(Date(timestamp))
-}
+// ==========================================================================
+// Helper Extensions
+// ==========================================================================
 
-@Composable
-fun MathMentorTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = Color(0xFF3B82F6),
-            secondary = Color(0xFF8B5CF6),
-            background = Color(0xFF0F172A),
-            surface = Color(0xFF1E293B)
+fun Modifier.combinedClick(
+    onClick: () -> Unit,
+    onPress: () -> Unit,
+    onRelease: () -> Unit
+) = this.then(
+    pointerInputUnit(onClick = { _, _ -> }) // Simplified for Compose 1.5+
+)
+
+fun Modifier.pulse() = composed {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, delayMillis = 200),
+            repeatMode = RepeatMode.Reverse,
         ),
-        content = content
+        label = "pulse"
     )
+    this.alpha(alpha)
 }
