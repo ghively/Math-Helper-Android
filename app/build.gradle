@@ -65,10 +65,11 @@ chaquopy {
 
         pip {
             install "sympy==1.12"
-            install "numpy==1.26.4"
+            // NumPy requires native compilation - use only if needed
+            // install "numpy==1.26.4"
         }
 
-        extractPackages "sympy", "numpy"
+        extractPackages "sympy"
     }
 
     // Python source is automatically found in src/main/python
