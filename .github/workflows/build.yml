@@ -82,7 +82,34 @@ jobs:
           VERSION=$(grep "versionName" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create Release (on tags only)
+      - name: Create Release (on main branch)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app-release-signed.apk
+          name: Release ${{ github.sha }}
+          body: |
+            ## Math Mentor APK
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref }}
+
+            ### Downloads
+            - **Debug APK:** `app-debug.apk` - For testing
+            - **Release APK:** `app-release-signed.apk` - For production
+
+            ### Installation
+            1. Download the APK
+            2. Enable "Install from unknown sources" on your Android device
+            3. Open the APK file to install
+          draft: false
+          prerelease: false
+          tag_name: build-${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Tagged Release (on tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
@@ -98,7 +125,7 @@ jobs:
   upload-model:
     name: Upload Model to Release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
 
     permissions:
       contents: write
@@ -120,5 +147,6 @@ jobs:
           files: |
             Qwen2.5-Math-1.5B.Q4_K_M.gguf
             Qwen2.5-Math-1.5B.Q4_K_M.gguf.sha256
-        env:
+          tag_name: build-${{ github.sha }}
+          env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
