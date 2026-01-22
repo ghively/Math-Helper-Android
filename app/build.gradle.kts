@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.chaquo.python") version "15.0.1"
+    id("com.chaquo.python") version "12.0.0"
 }
 
 android {
@@ -101,7 +101,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     // Chaquopy Python runtime
-    implementation("com.chaquo.python:runtime:15.0.1")
+    implementation("com.chaquo.python:runtime:12.0.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
