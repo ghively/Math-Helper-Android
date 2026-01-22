@@ -1,0 +1,13 @@
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langgraph
+langserve[all]
+fastapi
+python-dotenv
+duckduckgo-search
+grandalf
+pydantic
+sse-starlette
+sympy
